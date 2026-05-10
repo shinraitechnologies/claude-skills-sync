@@ -1,71 +1,78 @@
 ---
 name: "status"
-description: "Show experiment dashboard with results, active loops, and progress."
-command: /ar:status
+description: "Show DAG state, agent progress, and branch status for an AgentHub session."
+command: /hub:status
 ---
 
-# /ar:status — Experiment Dashboard
+# /hub:status — Session Status
 
-Show experiment results, active loops, and progress across all experiments.
+Display the current state of an AgentHub session: agent branches, commit counts, frontier status, and board updates.
 
 ## Usage
 
 ```
-/ar:status                                  # Full dashboard
-/ar:status engineering/api-speed            # Single experiment detail
-/ar:status --domain engineering             # All experiments in a domain
-/ar:status --format markdown                # Export as markdown
-/ar:status --format csv --output results.csv  # Export as CSV
+/hub:status                        # Status for latest session
+/hub:status 20260317-143022        # Status for specific session
 ```
 
 ## What It Does
 
-### Single experiment
-
+1. Run session overview:
 ```bash
-python {skill_path}/scripts/log_results.py --experiment {domain}/{name}
+python {skill_path}/scripts/session_manager.py --status {session-id}
 ```
 
-Also check for active loop:
+2. Run DAG analysis:
 ```bash
-cat .autoresearch/{domain}/{name}/loop.json 2>/dev/null
+python {skill_path}/scripts/dag_analyzer.py --status --session {session-id}
 ```
 
-If loop.json exists, show:
-```
-Active loop: every {interval} (cron ID: {id}, started: {date})
-```
-
-### Domain view
-
+3. Read recent board updates:
 ```bash
-python {skill_path}/scripts/log_results.py --domain {domain}
+python {skill_path}/scripts/board_manager.py --read progress
 ```
 
-### Full dashboard
-
-```bash
-python {skill_path}/scripts/log_results.py --dashboard
-```
-
-For each experiment, also check for loop.json and show loop status.
-
-### Export
-
-```bash
-# CSV
-python {skill_path}/scripts/log_results.py --dashboard --format csv --output {file}
-
-# Markdown
-python {skill_path}/scripts/log_results.py --dashboard --format markdown --output {file}
-```
-
-## Output Example
+## Output Format
 
 ```
-DOMAIN          EXPERIMENT          RUNS  KEPT  BEST         CHANGE    STATUS   LOOP
-engineering     api-speed            47    14   185ms        -76.9%    active   every 1h
-engineering     bundle-size          23     8   412KB        -58.3%    paused   —
-marketing       medium-ctr           31    11   8.4/10       +68.0%    active   daily
-prompts         support-tone         15     6   82/100       +46.4%    done     —
+Session: 20260317-143022 (running)
+Task: Optimize API response time below 100ms
+Agents: 3 | Base: dev
+
+AGENT    BRANCH                                        COMMITS  STATUS     LAST UPDATE
+agent-1  hub/20260317-143022/agent-1/attempt-1         3        frontier   2026-03-17 14:35:10
+agent-2  hub/20260317-143022/agent-2/attempt-1         5        frontier   2026-03-17 14:36:45
+agent-3  hub/20260317-143022/agent-3/attempt-1         2        frontier   2026-03-17 14:34:22
+
+Recent Board Activity:
+  [progress] agent-1: Implemented caching, running tests
+  [progress] agent-2: Hash map approach working, benchmarking
+  [results]  agent-2: Final result posted
 ```
+
+Example output for a content task:
+
+```
+Session: 20260317-151200 (running)
+Task: Draft 3 competing taglines for product launch
+Agents: 3 | Base: dev
+
+AGENT    BRANCH                                        COMMITS  STATUS     LAST UPDATE
+agent-1  hub/20260317-151200/agent-1/attempt-1         2        frontier   2026-03-17 15:18:30
+agent-2  hub/20260317-151200/agent-2/attempt-1         2        frontier   2026-03-17 15:19:12
+agent-3  hub/20260317-151200/agent-3/attempt-1         1        frontier   2026-03-17 15:17:55
+
+Recent Board Activity:
+  [progress] agent-1: Storytelling angle draft complete, refining CTA
+  [progress] agent-2: Benefit-led draft done, testing urgency variant
+  [results]  agent-3: Final result posted
+```
+
+## After Status
+
+If all agents have posted results:
+- Suggest `/hub:eval` to rank results
+
+If some agents are still running:
+- Show which are done vs in-progress
+- Suggest waiting or checking again later

@@ -1,89 +1,201 @@
 ---
 name: "init"
-description: "Create a new AgentHub collaboration session with task, agent count, and evaluation criteria."
-command: /hub:init
+description: >-
+  Set up Playwright in a project. Use when user says "set up playwright",
+  "add e2e tests", "configure playwright", "testing setup", "init playwright",
+  or "add test infrastructure".
 ---
 
-# /hub:init — Create New Session
+# Initialize Playwright Project
 
-Initialize an AgentHub collaboration session. Creates the `.agenthub/` directory structure, generates a session ID, and configures evaluation criteria.
+Set up a production-ready Playwright testing environment. Detect the framework, generate config, folder structure, example test, and CI workflow.
 
-## Usage
+## Steps
 
-```
-/hub:init                                                    # Interactive mode
-/hub:init --task "Optimize API" --agents 3 --eval "pytest bench.py" --metric p50_ms --direction lower
-/hub:init --task "Refactor auth" --agents 2                  # No eval (LLM judge mode)
-```
+### 1. Analyze the Project
 
-## What It Does
+Use the `Explore` subagent to scan the project:
 
-### If arguments provided
+- Check `package.json` for framework (React, Next.js, Vue, Angular, Svelte)
+- Check for `tsconfig.json` → use TypeScript; otherwise JavaScript
+- Check if Playwright is already installed (`@playwright/test` in dependencies)
+- Check for existing test directories (`tests/`, `e2e/`, `__tests__/`)
+- Check for existing CI config (`.github/workflows/`, `.gitlab-ci.yml`)
 
-Pass them to the init script:
+### 2. Install Playwright
+
+If not already installed:
 
 ```bash
-python {skill_path}/scripts/hub_init.py \
-  --task "{task}" --agents {N} \
-  [--eval "{eval_cmd}"] [--metric {metric}] [--direction {direction}] \
-  [--base-branch {branch}]
+npm init playwright@latest -- --quiet
 ```
 
-### If no arguments (interactive mode)
+Or if the user prefers manual setup:
 
-Collect each parameter:
-
-1. **Task** — What should the agents do? (required)
-2. **Agent count** — How many parallel agents? (default: 3)
-3. **Eval command** — Command to measure results (optional — skip for LLM judge mode)
-4. **Metric name** — What metric to extract from eval output (required if eval command given)
-5. **Direction** — Is lower or higher better? (required if metric given)
-6. **Base branch** — Branch to fork from (default: current branch)
-
-### Output
-
-```
-AgentHub session initialized
-  Session ID: 20260317-143022
-  Task: Optimize API response time below 100ms
-  Agents: 3
-  Eval: pytest bench.py --json
-  Metric: p50_ms (lower is better)
-  Base branch: dev
-  State: init
-
-Next step: Run /hub:spawn to launch 3 agents
+```bash
+npm install -D @playwright/test
+npx playwright install --with-deps chromium
 ```
 
-For content or research tasks (no eval command → LLM judge mode):
+### 3. Generate `playwright.config.ts`
+
+Adapt to the detected framework:
+
+**Next.js:**
+```typescript
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: [
+    ['html', { open: 'never' }],
+    ['list'],
+  ],
+  use: {
+    baseURL: 'http://localhost:3000',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+  },
+  projects: [
+    { name: "chromium", use: { ...devices['Desktop Chrome'] } },
+    { name: "firefox", use: { ...devices['Desktop Firefox'] } },
+    { name: "webkit", use: { ...devices['Desktop Safari'] } },
+  ],
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+**React (Vite):**
+- Change `baseURL` to `http://localhost:5173`
+- Change `webServer.command` to `npm run dev`
+
+**Vue/Nuxt:**
+- Change `baseURL` to `http://localhost:3000`
+- Change `webServer.command` to `npm run dev`
+
+**Angular:**
+- Change `baseURL` to `http://localhost:4200`
+- Change `webServer.command` to `npm run start`
+
+**No framework detected:**
+- Omit `webServer` block
+- Set `baseURL` from user input or leave as placeholder
+
+### 4. Create Folder Structure
 
 ```
-AgentHub session initialized
-  Session ID: 20260317-151200
-  Task: Draft 3 competing taglines for product launch
-  Agents: 3
-  Eval: LLM judge (no eval command)
-  Base branch: dev
-  State: init
-
-Next step: Run /hub:spawn to launch 3 agents
+e2e/
+├── fixtures/
+│   └── index.ts          # Custom fixtures
+├── pages/
+│   └── .gitkeep          # Page object models
+├── test-data/
+│   └── .gitkeep          # Test data files
+└── example.spec.ts       # First example test
 ```
 
-## Baseline Capture
+### 5. Generate Example Test
 
-If `--eval` was provided, capture a baseline measurement after session creation:
+```typescript
+import { test, expect } from '@playwright/test';
 
-1. Run the eval command in the current working directory
-2. Extract the metric value from stdout
-3. Append `baseline: {value}` to `.agenthub/sessions/{session-id}/config.yaml`
-4. Display: `Baseline captured: {metric} = {value}`
+test.describe('Homepage', () => {
+  test('should load successfully', async ({ page }) => {
+    await page.goto('/');
+    await expect(page).toHaveTitle(/.+/);
+  });
 
-This baseline is used by `result_ranker.py --baseline` during evaluation to show deltas. If the eval command fails at this stage, warn the user but continue — baseline is optional.
+  test('should have visible navigation', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('navigation')).toBeVisible();
+  });
+});
+```
 
-## After Init
+### 6. Generate CI Workflow
 
-Tell the user:
-- Session created with ID `{session-id}`
-- Baseline metric (if captured)
-- Next step: `/hub:spawn` to launch agents
-- Or `/hub:spawn {session-id}` if multiple sessions exist
+If `.github/workflows/` exists, create `playwright.yml`:
+
+```yaml
+name: "playwright-tests"
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: "install-dependencies"
+        run: npm ci
+      - name: "install-playwright-browsers"
+        run: npx playwright install --with-deps
+      - name: "run-playwright-tests"
+        run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: "playwright-report"
+          path: playwright-report/
+          retention-days: 30
+```
+
+If `.gitlab-ci.yml` exists, add a Playwright stage instead.
+
+### 7. Update `.gitignore`
+
+Append if not already present:
+
+```
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+```
+
+### 8. Add npm Scripts
+
+Add to `package.json` scripts:
+
+```json
+{
+  "test:e2e": "playwright test",
+  "test:e2e:ui": "playwright test --ui",
+  "test:e2e:debug": "playwright test --debug"
+}
+```
+
+### 9. Verify Setup
+
+Run the example test:
+
+```bash
+npx playwright test
+```
+
+Report the result. If it fails, diagnose and fix before completing.
+
+## Output
+
+Confirm what was created:
+- Config file path and key settings
+- Test directory and example test
+- CI workflow (if applicable)
+- npm scripts added
+- How to run: `npx playwright test` or `npm run test:e2e`

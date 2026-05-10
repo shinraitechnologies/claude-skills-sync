@@ -1,103 +1,71 @@
 ---
 name: "status"
-description: "Memory health dashboard showing line counts, topic files, capacity, stale entries, and recommendations."
+description: "Show experiment dashboard with results, active loops, and progress."
+command: /ar:status
 ---
 
-# /si:status — Memory Health Dashboard
+# /ar:status — Experiment Dashboard
 
-Quick overview of your project's memory state across all memory systems.
+Show experiment results, active loops, and progress across all experiments.
 
 ## Usage
 
 ```
-/si:status                    # Full dashboard
-/si:status --brief            # One-line summary
+/ar:status                                  # Full dashboard
+/ar:status engineering/api-speed            # Single experiment detail
+/ar:status --domain engineering             # All experiments in a domain
+/ar:status --format markdown                # Export as markdown
+/ar:status --format csv --output results.csv  # Export as CSV
 ```
 
-## What It Reports
+## What It Does
 
-### Step 1: Locate all memory files
+### Single experiment
 
 ```bash
-# Auto-memory directory
-MEMORY_DIR="$HOME/.claude/projects/$(pwd | sed 's|/|%2F|g; s|%2F|/|; s|^/||')/memory"
-
-# Count lines in MEMORY.md
-wc -l "$MEMORY_DIR/MEMORY.md" 2>/dev/null || echo "0"
-
-# List topic files
-ls "$MEMORY_DIR/"*.md 2>/dev/null | grep -v MEMORY.md
-
-# CLAUDE.md
-wc -l ./CLAUDE.md 2>/dev/null || echo "0"
-wc -l ~/.claude/CLAUDE.md 2>/dev/null || echo "0"
-
-# Rules directory
-ls .claude/rules/*.md 2>/dev/null | wc -l
+python {skill_path}/scripts/log_results.py --experiment {domain}/{name}
 ```
 
-### Step 2: Analyze capacity
-
-| Metric | Healthy | Warning | Critical |
-|--------|---------|---------|----------|
-| MEMORY.md lines | < 120 | 120-180 | > 180 |
-| CLAUDE.md lines | < 150 | 150-200 | > 200 |
-| Topic files | 0-3 | 4-6 | > 6 |
-| Stale entries | 0 | 1-3 | > 3 |
-
-### Step 3: Quick stale check
-
-For each MEMORY.md entry that references a file path:
+Also check for active loop:
 ```bash
-# Verify referenced files still exist
-grep -oE '[a-zA-Z0-9_/.-]+\.(ts|js|py|md|json|yaml|yml)' "$MEMORY_DIR/MEMORY.md" | while read f; do
-  [ ! -f "$f" ] && echo "STALE: $f"
-done
+cat .autoresearch/{domain}/{name}/loop.json 2>/dev/null
 ```
 
-### Step 4: Output
-
+If loop.json exists, show:
 ```
-📊 Memory Status
-
-  Auto-Memory (MEMORY.md):
-    Lines:        {{n}}/200 ({{bar}}) {{emoji}}
-    Topic files:  {{count}} ({{names}})
-    Last updated: {{date}}
-
-  Project Rules:
-    CLAUDE.md:    {{n}} lines
-    Rules:        {{count}} files in .claude/rules/
-    User global:  {{n}} lines (~/.claude/CLAUDE.md)
-
-  Health:
-    Capacity:     {{healthy/warning/critical}}
-    Stale refs:   {{count}} (files no longer exist)
-    Duplicates:   {{count}} (entries repeated across files)
-
-  {{if recommendations}}
-  💡 Recommendations:
-    - {{recommendation}}
-  {{endif}}
+Active loop: every {interval} (cron ID: {id}, started: {date})
 ```
 
-### Brief mode
+### Domain view
+
+```bash
+python {skill_path}/scripts/log_results.py --domain {domain}
+```
+
+### Full dashboard
+
+```bash
+python {skill_path}/scripts/log_results.py --dashboard
+```
+
+For each experiment, also check for loop.json and show loop status.
+
+### Export
+
+```bash
+# CSV
+python {skill_path}/scripts/log_results.py --dashboard --format csv --output {file}
+
+# Markdown
+python {skill_path}/scripts/log_results.py --dashboard --format markdown --output {file}
+```
+
+## Output Example
 
 ```
-/si:status --brief
+DOMAIN          EXPERIMENT          RUNS  KEPT  BEST         CHANGE    STATUS   LOOP
+engineering     api-speed            47    14   185ms        -76.9%    active   every 1h
+engineering     bundle-size          23     8   412KB        -58.3%    paused   —
+marketing       medium-ctr           31    11   8.4/10       +68.0%    active   daily
+prompts         support-tone         15     6   82/100       +46.4%    done     —
 ```
-
-Output: `📊 Memory: {{n}}/200 lines | {{count}} rules | {{status_emoji}} {{status_word}}`
-
-## Interpretation
-
-- **Green (< 60%)**: Plenty of room. Auto-memory is working well.
-- **Yellow (60-90%)**: Getting full. Consider running `/si:review` to promote or clean up.
-- **Red (> 90%)**: Near capacity. Auto-memory may start dropping older entries. Run `/si:review` now.
-
-## Tips
-
-- Run `/si:status --brief` as a quick check anytime
-- If capacity is yellow+, run `/si:review` to identify promotion candidates
-- Stale entries waste space — delete references to files that no longer exist
-- Topic files are fine — Claude creates them to keep MEMORY.md under 200 lines
